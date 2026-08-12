@@ -180,6 +180,10 @@ if [[ "$(uname)" != Darwin ]]; then
 EOL
 fi
 
+if [[ "${OSTYPE}" == "msys" && "$DESIRED_CUDA" == cu* ]]; then
+  echo "export FLASH_ATTENTION_MAX_JOBS=\"${FLASH_ATTENTION_MAX_JOBS:-2}\"" >> "$envfile"
+fi
+
 echo 'retry () {' >> "$envfile"
 echo '    $*  || (sleep 1 && $*) || (sleep 2 && $*) || (sleep 4 && $*) || (sleep 8 && $*)' >> "$envfile"
 echo '}' >> "$envfile"
