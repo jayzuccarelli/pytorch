@@ -192,6 +192,30 @@ Entries in this list are dominant over all other flags dynamic=False, force_nn_m
 and force_parameter_static_shapes.
 """
 
+static_sources: str = Config(
+    env_name_default="TORCH_COMPILE_STATIC_SOURCES", default=""
+)
+r"""
+Comma delimited list of sources that should be marked as static. This is the inverse of
+``dynamic_sources``: it is useful when automatic dynamic shapes (or PGO) makes a source
+dynamic and that dynamism hurts you, e.g. it produces a worse kernel, or it causes an
+unwanted specialization/guard failure downstream. Ints listed here are specialized as
+constants and tensor dims listed here are held static.
+
+Supports the same exact-name / regex / ``:N`` per-dim suffix syntax as ``dynamic_sources``;
+see that config's docstring for details. Examples::
+
+    L['x']                  # all dims of x static
+    L['x']:0                # only dim 0 of x static
+    L\['x.*'\]              # every source whose name starts with L['x
+
+Entries in this list override automatic dynamic shapes, PGO, ``dynamic_values`` and
+``dynamic=True``. They do NOT override an explicit ``torch._dynamo.mark_dynamic`` /
+``mark_unbacked`` call, and they lose to ``dynamic_sources`` and ``unbacked_sources``
+when the same source is listed in both (those lists are documented as dominant over
+everything else).
+"""
+
 # force a python GC before recording cudagraphs
 force_cudagraph_gc: bool = Config(env_name_default="TORCH_CUDAGRAPH_GC", default=False)
 """
