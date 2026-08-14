@@ -242,6 +242,34 @@ def inner_fn(args):
     return (_out_plain_4,)""",
         )
 
+    def test_has_opaque_outputs_emits_unwrap(self):
+        """has_opaque_outputs=True emits the FakeScriptObject unwrap pass."""
+        source, _ = _codegen_subclass_wrapper_source(
+            inp_metas=[PlainTensorMeta(unwrapped_idx=0)],
+            out_metas=[PlainTensorMeta(unwrapped_idx=0)],
+            num_fw_outs_saved_for_bw=None,
+            has_opaque_outputs=True,
+        )
+
+        self.assertExpectedInline(
+            source,
+            """\
+def inner_fn(args):
+    unwrapped_args = []
+    unwrapped_args.append(args[0])
+    unwrapped_args.extend(args[1:])
+    args.clear()
+    unwrapped_outs = compiled_fn(unwrapped_args)
+    unwrapped_outs = [_unwrap_fake_obj_0(o) for o in unwrapped_outs]
+    _out_idx = 0
+    _num_wrapped_outs = len(unwrapped_outs)
+    assert _num_wrapped_outs == 1, f'expected 1 wrapped outputs, got {_num_wrapped_outs}'
+    _out_plain_1 = unwrapped_outs[_out_idx]
+    _out_idx += 1
+    assert _out_idx == _num_wrapped_outs, f'wrapped {_out_idx} outputs, expected {_num_wrapped_outs}'
+    return (_out_plain_1,)""",
+        )
+
     def test_trailing_args_forwarded(self):
         """Extra trailing args (e.g. rng seed/offset) are forwarded to compiled_fn."""
         # Build SubclassCreationMeta manually to avoid __post_init__ fake tensor check

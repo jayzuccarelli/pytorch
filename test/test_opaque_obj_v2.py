@@ -2427,6 +2427,82 @@ class GraphModule(torch.nn.Module):
         result2 = c(torch.randn(4, 8, requires_grad=True))
         self.assertIsInstance(result2, WrapperSub)
 
+    def test_opaque_saved_for_backward_with_subclass_output(self):
+        """Opaque saved for backward must be unwrapped when the graph also
+        has a subclass output (the unwrap pass covers the activation region)."""
+
+        a = torch.randn(4, 4, requires_grad=True)
+        b = torch.randn(4, 4, requires_grad=True)
+        counter = Counter(start=3, end=10)
+        size = SizeStore(4)
+        x = TensorWithCounter(a, b, counter, size)
+
+        @torch.compile(backend="aot_eager", fullgraph=True)
+        def fn(t):
+            return t * 2
+
+        out = fn(x)
+        self.assertIsInstance(out, TensorWithCounter)
+
+        # The opaque Counter is saved for backward as part of the subclass;
+        # verify backward runs without errors (would fail if the activation
+        # region opaques were left as FakeScriptObject).
+        out.sum().backward()
+        self.assertIsNotNone(x.grad)
+
+    def test_opaque_constant_output_with_opaque_meta_subclass(self):
+        """When has_opaque_outputs=True, the unwrap pass must be safe for
+        OpaqueMeta slots within a subclass (passthrough from input)."""
+
+        class Cfg:
+            def __init__(self, scale):
+                self.scale = scale
+
+            def __eq__(self, other):
+                return type(other) is Cfg and other.scale == self.scale
+
+            def __hash__(self):
+                return hash(self.scale)
+
+            def __fx_repr__(self):
+                return (f"Cfg({self.scale!r})", {"Cfg": Cfg})
+
+        register_custom_class(Cfg, typ="constant")
+
+        # TensorWithCounter has Counter (a symbolic opaque) in its inner_keys.
+        # The function also produces a constant-type opaque output, triggering
+        # has_opaque_outputs=True.  The Counter in the subclass's OpaqueMeta
+        # slots must survive the blanket unwrap unchanged.
+        class Mod(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.cfgs = []
+
+            def forward(self, x):
+                if not self.cfgs:
+                    self.cfgs.append(Cfg(0.5))
+                return x * 2
+
+        a = torch.randn(4, 4)
+        b = torch.randn(4, 4)
+        counter = Counter(start=5, end=10)
+        size = SizeStore(4)
+        x = TensorWithCounter(a, b, counter, size)
+
+        m = Mod()
+        c = torch.compile(m, fullgraph=True, backend="aot_eager")
+
+        with torch.no_grad():
+            out = c(x)
+
+        # The subclass output must preserve its opaque attr
+        self.assertIsInstance(out, TensorWithCounter)
+        self.assertIs(out._counter, counter)
+
+        # The constant opaque output must be the real object
+        self.assertEqual(len(m.cfgs), 1)
+        self.assertIs(type(m.cfgs[0]), Cfg)
+
     @unittest.skipIf(IS_FBCODE or IS_SANDCASTLE, "Skip in fbcode/sandcastle")
     def test_opaque_constant_output_with_subclass_output_cache_hit(self):
         """Cross-process FX graph cache hit must not lose opaque constants.
@@ -2527,13 +2603,11 @@ class GraphModule(torch.nn.Module):
 
             # Run 1: populate cache
             line1 = run_and_parse()
-            self.assertIn("miss=1", line1)
-            self.assertIn("cfg_type=Q", line1)
+            self.assertEqual(line1, "RESULT hit=0 miss=1 cfg_type=Q")
 
             # Run 2: cache hit in a fresh process
             line2 = run_and_parse()
-            self.assertIn("hit=1", line2)
-            self.assertIn("cfg_type=Q", line2)
+            self.assertEqual(line2, "RESULT hit=1 miss=0 cfg_type=Q")
 
     def test_tangent_primal_proxy_collision_for_opaque_inner_attr(self):
         """Regression test for tangent/primal proxy collision.
