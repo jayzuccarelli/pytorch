@@ -332,11 +332,18 @@ def channel_shuffle(input: TensorLikeType, groups: int) -> TensorLikeType:
     ):
         return input.view(input.shape)
 
+    # The CPU kernel keeps the input's memory format; other backends use
+    # math_channel_shuffle, which returns a contiguous tensor.
+    memory_format = (
+        utils.suggest_memory_format(input)
+        if device_hint(input) == "cpu"
+        else torch.contiguous_format
+    )
     return (
         input.reshape(n, groups, cg, *dhw)
         .transpose(1, 2)
         .reshape(input.shape)
-        .contiguous()
+        .contiguous(memory_format=memory_format)
     )
 
 

@@ -21,6 +21,7 @@ from torch._ops import DispatchKey
 from torch.testing import make_tensor
 from torch.testing._internal.common_cuda import SM70OrLater, tf32_off
 from torch.testing._internal.common_device_type import (
+    dtypes,
     instantiate_device_type_tests,
     onlyCPU,
     onlyCUDA,
@@ -1226,6 +1227,22 @@ class DecompOneOffTests(TestCase):
         ref = torch.ops.aten._log_softmax(x, -1, False)
         res = torch._decomp.decompositions._log_softmax(x, -1, False)
         self.assertEqual(ref.stride(), res.stride())
+
+    @onlyNativeDeviceTypes
+    @skipIfCrossRef
+    @dtypes(torch.float32, torch.float64)
+    def test_channel_shuffle_memory_format(self, device, dtype):
+        for size, memory_format in (
+            ((2, 6, 4, 5), torch.channels_last),
+            ((2, 6, 3, 4, 5), torch.channels_last_3d),
+        ):
+            x = torch.randn(size, dtype=dtype, device=device)
+            x = x.contiguous(memory_format=memory_format)
+
+            ref = torch.ops.aten.channel_shuffle(x, 3)
+            res = torch._refs.nn.functional.channel_shuffle(x, 3)
+            self.assertEqual(ref, res)
+            self.assertEqual(ref.stride(), res.stride())
 
     @onlyCUDA
     def test_exponential_non_inf(self, device):
