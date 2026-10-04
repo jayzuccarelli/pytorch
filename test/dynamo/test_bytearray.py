@@ -14,6 +14,14 @@ from torch._dynamo.testing import CompileCounter
 from torch.testing._internal.common_utils import make_dynamo_test, run_tests
 
 
+class Indexable:
+    def __init__(self, value=0):
+        self.value = value
+
+    def __index__(self):
+        return self.value
+
+
 class ByteArrayTest(torch._dynamo.test_case.TestCase):
     """bytearray-specific tests, ported from CPython ByteArrayTest."""
 
@@ -368,6 +376,48 @@ class ByteArrayTest(torch._dynamo.test_case.TestCase):
         self.assertEqual(b, self.type2test(b"abab"))
         b *= 0
         self.assertEqual(b, self.type2test())
+
+    @make_dynamo_test
+    def test_remove(self):
+        b = self.type2test(b"hello")
+        b.remove(ord("l"))
+        self.assertEqual(b, b"helo")
+        b.remove(ord("l"))
+        self.assertEqual(b, b"heo")
+        self.assertRaises(ValueError, lambda: b.remove(ord("l")))
+        self.assertRaises(ValueError, lambda: b.remove(400))
+        self.assertRaises(TypeError, lambda: b.remove("e"))
+        self.assertRaises(TypeError, lambda: b.remove(b"e"))
+        b.remove(ord("o"))
+        b.remove(ord("h"))
+        b.remove(Indexable(ord("e")))
+        self.assertEqual(b, b"")
+        c = self.type2test([126, 127, 128, 129])
+        c.remove(129)
+        self.assertEqual(c, bytes([126, 127, 128]))
+
+    @make_dynamo_test
+    def test_clear(self):
+        b = self.type2test(b"python")
+        b.clear()
+        self.assertEqual(b, b"")
+        b.clear()
+        self.assertEqual(b, b"")
+        b += b"p"
+        self.assertEqual(b, b"p")
+
+    def test_remove_clear_arg_mutation(self):
+        @torch.compile(backend="eager", fullgraph=True)
+        def f(a, b, x):
+            a.remove(ord("b"))
+            b.clear()
+            return x + 1
+
+        a = bytearray(b"abc")
+        b = bytearray(b"xyz")
+        self.assertEqual(f(a, b, torch.ones(1)), torch.ones(1) + 1)
+        self.assertEqual(a, bytearray(b"ac"))
+        self.assertEqual(b, bytearray())
 
     def test_repr(self):
         @torch.compile(backend="eager")

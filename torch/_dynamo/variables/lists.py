@@ -2398,11 +2398,47 @@ class ByteArrayVariable(VariableTracker):
             raise_observed_exception(type(e), tx, args=list(e.args))
         return ConstantVariable.create(result)
 
+    def bytearray_remove(
+        self,
+        tx: "InstructionTranslatorBase",
+        args: list[VariableTracker],
+        kwargs: dict[str, VariableTracker],
+    ) -> VariableTracker | None:
+        # bytearray_remove_impl: https://github.com/python/cpython/blob/v3.13.0/Objects/bytearrayobject.c
+        if not self.is_mutable():
+            return None
+        value = pynumber_index(tx, args[0])
+        if not value.is_python_constant():
+            return None
+        new_data = bytearray(self.data)
+        try:
+            new_data.remove(value.as_python_constant())
+        except ValueError as e:
+            raise_observed_exception(ValueError, tx, args=list(e.args))
+        tx.output.side_effects.mutation(self)
+        # New buffer: do not mutate a sourced live object during tracing.
+        self.data = new_data
+        return ConstantVariable.create(None)
+
+    def bytearray_clear(
+        self,
+        tx: "InstructionTranslatorBase",
+        args: list[VariableTracker],
+        kwargs: dict[str, VariableTracker],
+    ) -> VariableTracker | None:
+        if not self.is_mutable():
+            return None
+        tx.output.side_effects.mutation(self)
+        self.data = bytearray()
+        return ConstantVariable.create(None)
+
     tp_methods = {
         "index": Method(bytearray_index),
         "count": Method(bytearray_count),
         "hex": Method(bytearray_hex),
         "decode": Method(bytearray_decode),
+        "remove": Method(bytearray_remove),
+        "clear": Method(bytearray_clear),
     }
 
     def reconstruct(self, codegen: "PyCodegen") -> None:
