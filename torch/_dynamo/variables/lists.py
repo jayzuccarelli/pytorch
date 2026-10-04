@@ -2398,11 +2398,34 @@ class ByteArrayVariable(VariableTracker):
             raise_observed_exception(type(e), tx, args=list(e.args))
         return ConstantVariable.create(result)
 
+    def bytearray_reverse(
+        self,
+        tx: "InstructionTranslatorBase",
+        args: list[VariableTracker],
+        kwargs: dict[str, VariableTracker],
+    ) -> VariableTracker | None:
+        if not self.is_mutable():
+            return None
+        tx.output.side_effects.mutation(self)
+        # New buffer: do not mutate a sourced live object during tracing.
+        self.data = self.data[::-1]
+        return ConstantVariable.create(None)
+
+    def bytearray_copy(
+        self,
+        tx: "InstructionTranslatorBase",
+        args: list[VariableTracker],
+        kwargs: dict[str, VariableTracker],
+    ) -> VariableTracker | None:
+        return ByteArrayVariable(bytearray(self.data), mutation_type=ValueMutationNew())
+
     tp_methods = {
         "index": Method(bytearray_index),
         "count": Method(bytearray_count),
         "hex": Method(bytearray_hex),
         "decode": Method(bytearray_decode),
+        "reverse": Method(bytearray_reverse),
+        "copy": Method(bytearray_copy),
     }
 
     def reconstruct(self, codegen: "PyCodegen") -> None:

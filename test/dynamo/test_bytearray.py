@@ -369,6 +369,44 @@ class ByteArrayTest(torch._dynamo.test_case.TestCase):
         b *= 0
         self.assertEqual(b, self.type2test())
 
+    @make_dynamo_test
+    def test_reverse(self):
+        b = self.type2test(b"hello")
+        self.assertEqual(b.reverse(), None)
+        self.assertEqual(b, b"olleh")
+        b = self.type2test(b"hello1")
+        b.reverse()
+        self.assertEqual(b, b"1olleh")
+        b = self.type2test()
+        b.reverse()
+        self.assertFalse(b)
+
+    @make_dynamo_test
+    def test_copy(self):
+        b = self.type2test(b"abc")
+        bb = b.copy()
+        self.assertEqual(bb, b"abc")
+        self.assertIsNot(b, bb)
+        bb += b"d"
+        self.assertEqual(bb, b"abcd")
+        self.assertEqual(b, b"abc")
+        self.assertEqual(self.type2test().copy(), b"")
+
+    def test_reverse_copy_arg_mutation(self):
+        @torch.compile(backend="eager", fullgraph=True)
+        def f(a, x):
+            c = a.copy()
+            a.reverse()
+            c += b"!"
+            return c, x + 1
+
+        a = bytearray(b"abc")
+        c, y = f(a, torch.ones(1))
+        self.assertEqual(a, bytearray(b"cba"))
+        self.assertEqual(c, bytearray(b"abc!"))
+        self.assertIsNot(c, a)
+        self.assertEqual(y, torch.ones(1) + 1)
+
     def test_repr(self):
         @torch.compile(backend="eager")
         def fn():
